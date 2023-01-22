@@ -33,6 +33,11 @@ Deno.test("deserialize primitives", () => {
   roundTrip(/^abc$/);
   roundTrip(/^abc$/gm);
   roundTrip(/^abc$/gimyusd);
+  roundTrip(new Object(true));
+  roundTrip(new Object(false));
+  roundTrip(new Object(1.2));
+  roundTrip(new Object(10n));
+  roundTrip(new Object("abc"));
 });
 
 Deno.test("deserialize circular reference", () => {
@@ -42,6 +47,7 @@ Deno.test("deserialize circular reference", () => {
       arr: [1, undefined, null, 2] as unknown[],
       sparse: genSparseArray(10, 5),
       regexp: /^abc$/,
+      boxed: new Object(1.2),
     },
     b: {
       a: null as unknown,

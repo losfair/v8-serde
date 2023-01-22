@@ -357,6 +357,35 @@ class ValueDeserializer {
     return regexp;
   }
 
+  // ValueDeserializer::ReadJSPrimitiveWrapper
+  #readJSPrimitiveWrapper(tag: EnumKey<typeof SerializationTag>): unknown {
+    const id = this.#nextId++;
+    let unboxed: unknown;
+    switch (tag) {
+      case "kTrueObject":
+        unboxed = true;
+        break;
+      case "kFalseObject":
+        unboxed = false;
+        break;
+      case "kNumberObject":
+        unboxed = this.#readDouble();
+        break;
+      case "kBigIntObject":
+        unboxed = this.#readBigInt();
+        break;
+      case "kStringObject":
+        unboxed = this.#readString();
+        break;
+      default:
+        throw new DeserializationError("Invalid primitive wrapper");
+    }
+
+    const obj = new Object(unboxed);
+    this.#addObjectWithId(id, obj);
+    return obj;
+  }
+
   // ValueDeserializer::ReadObjectInternal
   #readObjectInternal(): unknown {
     const tag = this.#readTag();
@@ -401,8 +430,14 @@ class ValueDeserializer {
         return this.#readSparseJSArray();
       case "kRegExp":
         return this.#readJSRegExp();
+      case "kTrueObject":
+      case "kFalseObject":
+      case "kNumberObject":
+      case "kBigIntObject":
+      case "kStringObject":
+        return this.#readJSPrimitiveWrapper(tag);
       default:
-        throw new Error("unknown tag");
+        throw new Error("unknown tag: " + tag);
     }
   }
 
