@@ -52,11 +52,6 @@ class ValueDeserializer {
     return object;
   }
 
-  // ValueDeserializer::HasObjectWithID
-  #hasObjectWithId(id: number): boolean {
-    return this.#objectIdMap.has(id);
-  }
-
   #readHeader() {
     if (this.#readByte() !== SerializationTag.kVersion) {
       throw new DeserializationError("Invalid data version");
@@ -206,7 +201,7 @@ class ValueDeserializer {
 
   // ValueDeserializer::ReadJSObjectProperties
   #readJSObjectProperties(
-    obj: Record<string, unknown>,
+    obj: Record<string | number, unknown>,
     endTag: EnumKey<typeof SerializationTag>,
   ): number {
     let numProperties = 0;
@@ -292,6 +287,56 @@ class ValueDeserializer {
     throw new Error("Not implemented");
   }
 
+  // ValueDeserializer::ReadDenseJSArray
+  #readDenseJSArray(): unknown[] {
+    const length = this.#readVarint32();
+    const id = this.#nextId++;
+    const array: unknown[] = Array(length);
+    this.#addObjectWithId(id, array);
+
+    for (let i = 0; i < length; i++) {
+      const tag = this.#peekTag();
+      if (tag === "kTheHole") {
+        this.#consumeTag("kTheHole");
+        continue;
+      }
+
+      array[i] = this.#readObject();
+    }
+
+    const numProperties = this.#readJSObjectProperties(
+      array as Record<number, unknown>,
+      "kEndDenseJSArray",
+    );
+    const expectedNumProperties = this.#readVarint32();
+    const expectedLength = this.#readVarint32();
+    if (numProperties !== expectedNumProperties || length !== expectedLength) {
+      throw new DeserializationError("Invalid array length");
+    }
+
+    return array;
+  }
+
+  // ValueDeserializer::ReadSparseJSArray
+  #readSparseJSArray(): unknown[] {
+    const length = this.#readVarint32();
+    const id = this.#nextId++;
+    const array: unknown[] = Array(length);
+    this.#addObjectWithId(id, array);
+
+    const numProperties = this.#readJSObjectProperties(
+      array as Record<number, unknown>,
+      "kEndSparseJSArray",
+    );
+    const expectedNumProperties = this.#readVarint32();
+    const expectedLength = this.#readVarint32();
+    if (numProperties !== expectedNumProperties || length !== expectedLength) {
+      throw new DeserializationError("Invalid array length");
+    }
+
+    return array;
+  }
+
   // ValueDeserializer::ReadObjectInternal
   #readObjectInternal(): unknown {
     const tag = this.#readTag();
@@ -328,9 +373,12 @@ class ValueDeserializer {
         const id = this.#readVarint32();
         return this.#getObjectWithId(id);
       }
-      case "kBeginJSObject": {
+      case "kBeginJSObject":
         return this.#readJSObject();
-      }
+      case "kBeginDenseJSArray":
+        return this.#readDenseJSArray();
+      case "kBeginSparseJSArray":
+        return this.#readSparseJSArray();
       default:
         throw new Error("unknown tag");
     }

@@ -16,20 +16,39 @@ Deno.test("deserialize primitives", () => {
   roundTrip("中文");
   roundTrip(String.fromCharCode(...Array(256).fill(0).map((_x, i) => i)));
   roundTrip({});
-  roundTrip({ a: 1, b: false, c: true, d: "hello", e: null, f: undefined });
+  roundTrip({
+    a: 1,
+    b: false,
+    c: true,
+    d: "hello",
+    e: null,
+    f: undefined,
+    g: [1, 2],
+    h: Array(10),
+  });
+  roundTrip([]);
+  roundTrip([1, 2]);
+  roundTrip(Array(10));
+  roundTrip(genSparseArray(10, 5));
 });
 
 Deno.test("deserialize circular reference", () => {
   const obj = {
     a: {
       b: null as unknown,
+      arr: [1, undefined, null, 2] as unknown[],
+      sparse: genSparseArray(10, 5),
     },
     b: {
       a: null as unknown,
+      arr: [2, "a", "c", 3] as unknown[],
     },
   };
   obj.a.b = obj.b;
   obj.b.a = obj.a;
+  obj.a.sparse[3] = obj.a;
+  obj.a.arr.push(obj.b);
+  obj.b.arr.push(obj.a);
 
   roundTrip(obj);
 });
@@ -38,4 +57,10 @@ function roundTrip(x: unknown) {
   const serialized = serialize(x);
   const deserialized = deserialize(serialized);
   assertEquals(deserialized, x);
+}
+
+function genSparseArray(len: number, pos: number): unknown[] {
+  const sparseArray = Array(len);
+  sparseArray[pos] = 42;
+  return sparseArray;
 }
