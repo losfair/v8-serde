@@ -1,7 +1,8 @@
 import {
   EnumKey,
-  formatVersion,
   invertedEnum,
+  maxFormatVersion,
+  minFormatVersion,
   SerializationTag,
 } from "./util.ts";
 
@@ -12,10 +13,17 @@ export class DeserializationError extends Error {
   }
 }
 
-export class ValueDeserializer {
+export function deserialize(data: Uint8Array): unknown {
+  const deserializer = new ValueDeserializer(data);
+  return deserializer.readValue();
+}
+
+class ValueDeserializer {
   readonly #data: Uint8Array;
   readonly #dv: DataView;
+  readonly #objectIdMap = new Map<number, unknown>();
   #pos = 0;
+  #nextId = 0;
 
   constructor(data: Uint8Array) {
     this.#data = data;
@@ -23,7 +31,30 @@ export class ValueDeserializer {
   }
 
   readValue(): unknown {
-    throw new Error("Not implemented");
+    this.#readHeader();
+    return this.#readObject();
+  }
+
+  // ValueDeserializer::AddObjectWithID
+  #addObjectWithId(id: number, object: unknown): void {
+    if (this.#objectIdMap.has(id)) {
+      throw new Error("Object with id already exists");
+    }
+    this.#objectIdMap.set(id, object);
+  }
+
+  // ValueDeserializer::GetObjectWithID
+  #getObjectWithId(id: number): unknown {
+    const object = this.#objectIdMap.get(id);
+    if (object === undefined) {
+      throw new Error("Object with id does not exist");
+    }
+    return object;
+  }
+
+  // ValueDeserializer::HasObjectWithID
+  #hasObjectWithId(id: number): boolean {
+    return this.#objectIdMap.has(id);
   }
 
   #readHeader() {
@@ -33,8 +64,13 @@ export class ValueDeserializer {
 
     const incomingFormatVersion = this.#readVarint32();
 
-    if (incomingFormatVersion > formatVersion) {
-      throw new DeserializationError("Unsupported format version");
+    if (
+      incomingFormatVersion < minFormatVersion ||
+      incomingFormatVersion > maxFormatVersion
+    ) {
+      throw new DeserializationError(
+        `Unsupported format version ${incomingFormatVersion}`,
+      );
     }
   }
 
@@ -84,25 +120,38 @@ export class ValueDeserializer {
   }
 
   // ValueDeserializer::PeekTag
-  #peekTag(): EnumKey<typeof SerializationTag> | undefined {
+  #peekTag(): EnumKey<typeof SerializationTag> {
     let peekPosition = this.#pos;
     let tag: EnumKey<typeof SerializationTag> | undefined;
     do {
-      if (peekPosition >= this.#data.length) return undefined;
-      tag = SerializationTag[invertedEnum][this.#data[peekPosition]];
-      peekPosition++;
+      if (peekPosition >= this.#data.length) tag = undefined;
+      else {
+        tag = SerializationTag[invertedEnum][this.#data[peekPosition]];
+        peekPosition++;
+      }
     } while (tag === "kPadding");
+
+    if (tag === undefined) {
+      throw new DeserializationError("Unexpected end of data");
+    }
     return tag;
   }
 
   // ValueDeserializer::ReadTag
-  #readTag(): EnumKey<typeof SerializationTag> | undefined {
+  #readTag(): EnumKey<typeof SerializationTag> {
     let tag: EnumKey<typeof SerializationTag> | undefined;
     do {
-      if (this.#pos >= this.#data.length) return undefined;
-      tag = SerializationTag[invertedEnum][this.#data[this.#pos]];
-      this.#pos++;
+      if (this.#pos >= this.#data.length) {
+        tag = undefined;
+      } else {
+        tag = SerializationTag[invertedEnum][this.#data[this.#pos]];
+        this.#pos++;
+      }
     } while (tag === "kPadding");
+
+    if (tag === undefined) {
+      throw new DeserializationError("Unexpected end of data");
+    }
     return tag;
   }
 
@@ -121,7 +170,7 @@ export class ValueDeserializer {
     const unsignedValue = this.#readVarint(width);
     let output = unsignedValue >> 1n;
     if (unsignedValue & 1n) {
-      output = -output;
+      output = -output - 1n;
     }
     return output;
   }
@@ -131,8 +180,163 @@ export class ValueDeserializer {
     if (this.#pos + 8 > this.#data.length) {
       throw new DeserializationError("Unexpected end of data");
     }
-    const value = this.#dv.getFloat64(this.#pos);
+    const value = this.#dv.getFloat64(this.#pos, true);
     this.#pos += 8;
     return value;
+  }
+
+  // ValueDeserializer::ReadJSObject
+  #readJSObject(): unknown {
+    const id = this.#nextId++;
+    const obj = {};
+    this.#addObjectWithId(id, obj);
+
+    const numProperties = this.#readJSObjectProperties(
+      obj,
+      "kEndJSObject",
+    );
+    const expectedNumProperties = this.#readVarint32();
+
+    if (numProperties !== expectedNumProperties) {
+      throw new DeserializationError("Invalid object property count");
+    }
+
+    return obj;
+  }
+
+  // ValueDeserializer::ReadJSObjectProperties
+  #readJSObjectProperties(
+    obj: Record<string, unknown>,
+    endTag: EnumKey<typeof SerializationTag>,
+  ): number {
+    let numProperties = 0;
+
+    for (;; numProperties++) {
+      const tag = this.#peekTag();
+      if (tag === endTag) {
+        this.#consumeTag(endTag);
+        return numProperties;
+      }
+
+      const key = this.#readObject();
+      if (!ValueDeserializer.#isValidObjectKey(key)) {
+        throw new DeserializationError("Invalid object key");
+      }
+      const value = this.#readObject();
+
+      if (Object.hasOwn(obj, key)) {
+        throw new DeserializationError("Duplicate object key");
+      }
+
+      obj[key] = value;
+    }
+  }
+
+  // ValueDeserializer::ReadBigInt
+  #readBigInt(): bigint {
+    const bitfield = this.#readVarint32();
+    const sign = bitfield & 1;
+    const bytelength = bitfield >> 1;
+    const digitsStorage = this.#readRawBytes(bytelength);
+    let hexBuf = "0x";
+    for (let i = digitsStorage.length - 1; i >= 0; i--) {
+      hexBuf += digitsStorage[i].toString(16).padStart(2, "0");
+    }
+    const out = BigInt(hexBuf);
+    return sign ? -out : out;
+  }
+
+  // ValueDeserializer::ReadUtf8String
+  #readUtf8String(): string {
+    const utf8Length = this.#readVarint32();
+    const utf8Bytes = this.#readRawBytes(utf8Length);
+    return new TextDecoder().decode(utf8Bytes);
+  }
+
+  // ValueDeserializer::ReadOneByteString
+  #readOneByteString(): string {
+    const byteLength = this.#readVarint32();
+    const bytes = this.#readRawBytes(byteLength);
+    return String.fromCharCode(...bytes);
+  }
+
+  // ValueDeserializer::ReadTwoByteString
+  #readTwoByteString(): string {
+    const byteLength = this.#readVarint32();
+    if (byteLength % 2 !== 0) {
+      throw new DeserializationError("Invalid string length");
+    }
+
+    // Clone for alignment
+    const bytes = Uint8Array.from(this.#readRawBytes(byteLength));
+    return String.fromCharCode(...new Uint16Array(bytes.buffer));
+  }
+
+  // ValueDeserializer::ReadObject
+  #readObject(): unknown {
+    const obj = this.#readObjectInternal();
+
+    // ArrayBufferView is special in that it consumes the value before it, even
+    // after format version 0.
+    if (obj instanceof ArrayBuffer) {
+      if (this.#peekTag() === "kArrayBufferView") {
+        this.#consumeTag("kArrayBufferView");
+        return this.#readJSArrayBufferView(obj);
+      }
+    }
+
+    return obj;
+  }
+
+  #readJSArrayBufferView(_obj: ArrayBuffer): unknown {
+    throw new Error("Not implemented");
+  }
+
+  // ValueDeserializer::ReadObjectInternal
+  #readObjectInternal(): unknown {
+    const tag = this.#readTag();
+
+    switch (tag) {
+      case "kVerifyObjectCount": {
+        // Read the count and ignore it.
+        this.#readVarint32();
+        return this.#readObject();
+      }
+      case "kUndefined":
+        return undefined;
+      case "kNull":
+        return null;
+      case "kTrue":
+        return true;
+      case "kFalse":
+        return false;
+      case "kInt32":
+        return Number(this.#readZigZag(4));
+      case "kUint32":
+        return Number(this.#readVarint(4));
+      case "kDouble":
+        return this.#readDouble();
+      case "kBigInt":
+        return this.#readBigInt();
+      case "kUtf8String":
+        return this.#readUtf8String();
+      case "kOneByteString":
+        return this.#readOneByteString();
+      case "kTwoByteString":
+        return this.#readTwoByteString();
+      case "kObjectReference": {
+        const id = this.#readVarint32();
+        return this.#getObjectWithId(id);
+      }
+      case "kBeginJSObject": {
+        return this.#readJSObject();
+      }
+      default:
+        throw new Error("unknown tag");
+    }
+  }
+
+  static #isValidObjectKey(x: unknown): x is string | number {
+    return typeof x === "string" || typeof x === "number";
   }
 }
