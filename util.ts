@@ -5,7 +5,7 @@ export const invertedEnum = Symbol("invertedEnum");
 
 export type EnumKey<T> = keyof Omit<T, typeof invertedEnum>;
 
-export const SerializationTag = normalizeByteEnum({
+export const SerializationTag = normalizeEnum({
   // version:uint32_t (if at beginning of data, sets version > 0)
   kVersion: 0xFF,
   // ignore
@@ -133,7 +133,7 @@ export const SerializationTag = normalizeByteEnum({
   kLegacyReservedRTCCertificate: "k",
 });
 
-export const ArrayBufferViewTag = normalizeByteEnum({
+export const ArrayBufferViewTag = normalizeEnum({
   kInt8Array: "b",
   kUint8Array: "B",
   kUint8ClampedArray: "C",
@@ -148,7 +148,7 @@ export const ArrayBufferViewTag = normalizeByteEnum({
   kDataView: "?",
 });
 
-export const ErrorTag = normalizeByteEnum({
+export const ErrorTag = normalizeEnum({
   // The error is a EvalError. No accompanying data.
   kEvalErrorPrototype: "E",
   // The error is a RangeError. No accompanying data.
@@ -171,7 +171,20 @@ export const ErrorTag = normalizeByteEnum({
   kEnd: ".",
 });
 
-function normalizeByteEnum<K extends string>(
+export const RegExpRawFlag = normalizeEnum({
+  kNone: 0,
+  kGlobal: 1 << 0,
+  kIgnoreCase: 1 << 1,
+  kMultiline: 1 << 2,
+  kSticky: 1 << 3,
+  kUnicode: 1 << 4,
+  kDotAll: 1 << 5,
+  kLinear: 1 << 6,
+  kHasIndices: 1 << 7,
+  kUnicodeSets: 1 << 8,
+});
+
+function normalizeEnum<K extends string>(
   x: Record<K, number | string>,
 ): Record<K, number> & { [invertedEnum]: Record<number, K> } {
   const result: Record<string, number> & { [invertedEnum]: Record<number, K> } =

@@ -3,6 +3,7 @@ import {
   invertedEnum,
   maxFormatVersion,
   minFormatVersion,
+  RegExpRawFlag,
   SerializationTag,
 } from "./util.ts";
 
@@ -337,6 +338,25 @@ class ValueDeserializer {
     return array;
   }
 
+  #readString(): string {
+    const obj = this.#readObject();
+    if (typeof obj !== "string") {
+      throw new DeserializationError("Invalid string");
+    }
+    return obj;
+  }
+
+  // ValueDeserializer::ReadJSRegExp
+  #readJSRegExp(): RegExp {
+    const id = this.#nextId++;
+    const pattern = this.#readString();
+    const rawFlags = this.#readVarint32();
+
+    const regexp = new RegExp(pattern, decodeRegExpRawFlags(rawFlags));
+    this.#addObjectWithId(id, regexp);
+    return regexp;
+  }
+
   // ValueDeserializer::ReadObjectInternal
   #readObjectInternal(): unknown {
     const tag = this.#readTag();
@@ -379,6 +399,8 @@ class ValueDeserializer {
         return this.#readDenseJSArray();
       case "kBeginSparseJSArray":
         return this.#readSparseJSArray();
+      case "kRegExp":
+        return this.#readJSRegExp();
       default:
         throw new Error("unknown tag");
     }
@@ -387,4 +409,29 @@ class ValueDeserializer {
   static #isValidObjectKey(x: unknown): x is string | number {
     return typeof x === "string" || typeof x === "number";
   }
+}
+
+const regexpFlagLookupTable: Record<EnumKey<typeof RegExpRawFlag>, string> = {
+  kNone: "",
+  kGlobal: "g",
+  kIgnoreCase: "i",
+  kMultiline: "m",
+  kSticky: "y",
+  kUnicode: "u",
+  kDotAll: "s",
+  kLinear: "",
+  kHasIndices: "d",
+  kUnicodeSets: "",
+};
+
+function decodeRegExpRawFlags(raw: number): string {
+  const dict = RegExpRawFlag[invertedEnum];
+  let output = "";
+  for (const [k, v] of Object.entries(dict)) {
+    if ((raw & parseInt(k)) !== 0) {
+      output += regexpFlagLookupTable[v];
+    }
+  }
+
+  return output;
 }
