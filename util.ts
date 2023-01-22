@@ -1,4 +1,5 @@
-export const formatVersion = 15;
+export const maxFormatVersion = 15;
+export const minFormatVersion = 14; // "We had a bug which produced invalid version 13 data"
 
 export const invertedEnum = Symbol("invertedEnum");
 
