@@ -386,6 +386,14 @@ class ValueDeserializer {
     return obj;
   }
 
+  // ValueDeserializer::ReadJSDate
+  #readJSDate(): Date {
+    const id = this.#nextId++;
+    const date = new Date(this.#readDouble());
+    this.#addObjectWithId(id, date);
+    return date;
+  }
+
   // ValueDeserializer::ReadObjectInternal
   #readObjectInternal(): unknown {
     const tag = this.#readTag();
@@ -424,18 +432,20 @@ class ValueDeserializer {
       }
       case "kBeginJSObject":
         return this.#readJSObject();
-      case "kBeginDenseJSArray":
-        return this.#readDenseJSArray();
       case "kBeginSparseJSArray":
         return this.#readSparseJSArray();
-      case "kRegExp":
-        return this.#readJSRegExp();
+      case "kBeginDenseJSArray":
+        return this.#readDenseJSArray();
+      case "kDate":
+        return this.#readJSDate();
       case "kTrueObject":
       case "kFalseObject":
       case "kNumberObject":
       case "kBigIntObject":
       case "kStringObject":
         return this.#readJSPrimitiveWrapper(tag);
+      case "kRegExp":
+        return this.#readJSRegExp();
       default:
         throw new Error("unknown tag: " + tag);
     }

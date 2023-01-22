@@ -35,19 +35,27 @@ Deno.test("deserialize primitives", () => {
   roundTrip(/^abc$/gimyusd);
   roundTrip(new Object(true));
   roundTrip(new Object(false));
+  roundTrip(new Object(0));
   roundTrip(new Object(1.2));
   roundTrip(new Object(10n));
   roundTrip(new Object("abc"));
+  roundTrip(new Date("2020-09-13T12:26:40.000Z"));
 });
 
 Deno.test("deserialize circular reference", () => {
   const obj = {
+    // Validate that object IDs are allocated
+    early: {
+      regexp: /^abc$/,
+      boxed: new Object(1.2),
+      date: new Date("2020-09-13T12:26:40.000Z"),
+      arr: [1, undefined, null, 2] as unknown[],
+      sparse: genSparseArray(10, 5),
+    },
     a: {
       b: null as unknown,
       arr: [1, undefined, null, 2] as unknown[],
       sparse: genSparseArray(10, 5),
-      regexp: /^abc$/,
-      boxed: new Object(1.2),
     },
     b: {
       a: null as unknown,
