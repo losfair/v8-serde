@@ -2,7 +2,8 @@ import { deserialize } from "./value_deserializer.ts";
 import { assertEquals } from "https://deno.land/std@0.173.0/testing/asserts.ts";
 
 // @ts-ignore core
-const serialize: (x: unknown) => Uint8Array = Deno.core.serialize;
+// deno-fmt-ignore
+const serialize: (x: unknown) => Uint8Array = Deno[Deno.internal].core.serialize;
 
 Deno.test("deserialize primitives", () => {
   roundTrip(true);
