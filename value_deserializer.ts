@@ -20,15 +20,15 @@ export function deserialize(data: Uint8Array): unknown {
 }
 
 class ValueDeserializer {
-  readonly #data: Uint8Array;
-  readonly #dv: DataView;
-  readonly #objectIdMap = new Map<number, unknown>();
-  #pos = 0;
-  #nextId = 0;
+  private readonly data: Uint8Array;
+  private readonly dv: DataView;
+  private readonly objectIdMap = new Map<number, unknown>();
+  private pos = 0;
+  private nextId = 0;
 
   constructor(data: Uint8Array) {
-    this.#data = data;
-    this.#dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    this.data = data;
+    this.dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
   }
 
   readValue(): unknown {
@@ -38,15 +38,15 @@ class ValueDeserializer {
 
   // ValueDeserializer::AddObjectWithID
   #addObjectWithId(id: number, object: unknown): void {
-    if (this.#objectIdMap.has(id)) {
+    if (this.objectIdMap.has(id)) {
       throw new Error("Object with id already exists");
     }
-    this.#objectIdMap.set(id, object);
+    this.objectIdMap.set(id, object);
   }
 
   // ValueDeserializer::GetObjectWithID
   #getObjectWithId(id: number): unknown {
-    const object = this.#objectIdMap.get(id);
+    const object = this.objectIdMap.get(id);
     if (object === undefined) {
       throw new Error("Object with id does not exist");
     }
@@ -71,18 +71,18 @@ class ValueDeserializer {
   }
 
   #readByte(): number {
-    if (this.#pos >= this.#data.length) {
+    if (this.pos >= this.data.length) {
       throw new DeserializationError("Unexpected end of data");
     }
-    return this.#data[this.#pos++];
+    return this.data[this.pos++];
   }
 
   #readRawBytes(n: number): Uint8Array {
-    if (this.#pos + n > this.#data.length) {
+    if (this.pos + n > this.data.length) {
       throw new DeserializationError("Unexpected end of data");
     }
-    const result = this.#data.subarray(this.#pos, this.#pos + n);
-    this.#pos += n;
+    const result = this.data.subarray(this.pos, this.pos + n);
+    this.pos += n;
     return result;
   }
 
@@ -92,10 +92,10 @@ class ValueDeserializer {
     let shift = 0;
     let hasAnotherByte = false;
     do {
-      if (this.#pos >= this.#data.length) {
+      if (this.pos >= this.data.length) {
         throw new DeserializationError("Unexpected end of data");
       }
-      const byte = this.#data[this.#pos];
+      const byte = this.data[this.pos];
       hasAnotherByte = (byte & 0x80) !== 0;
       if (shift < width * 8) {
         value |= BigInt(byte & 0x7F) << BigInt(shift);
@@ -106,7 +106,7 @@ class ValueDeserializer {
         }
         throw new DeserializationError("Too many bytes in varint");
       }
-      this.#pos++;
+      this.pos++;
     } while (hasAnotherByte);
     return value;
   }
@@ -117,12 +117,12 @@ class ValueDeserializer {
 
   // ValueDeserializer::PeekTag
   #peekTag(): EnumKey<typeof SerializationTag> {
-    let peekPosition = this.#pos;
+    let peekPosition = this.pos;
     let tag: EnumKey<typeof SerializationTag> | undefined;
     do {
-      if (peekPosition >= this.#data.length) tag = undefined;
+      if (peekPosition >= this.data.length) tag = undefined;
       else {
-        tag = SerializationTag[invertedEnum][this.#data[peekPosition]];
+        tag = SerializationTag[invertedEnum][this.data[peekPosition]];
         peekPosition++;
       }
     } while (tag === "kPadding");
@@ -137,11 +137,11 @@ class ValueDeserializer {
   #readTag(): EnumKey<typeof SerializationTag> {
     let tag: EnumKey<typeof SerializationTag> | undefined;
     do {
-      if (this.#pos >= this.#data.length) {
+      if (this.pos >= this.data.length) {
         tag = undefined;
       } else {
-        tag = SerializationTag[invertedEnum][this.#data[this.#pos]];
-        this.#pos++;
+        tag = SerializationTag[invertedEnum][this.data[this.pos]];
+        this.pos++;
       }
     } while (tag === "kPadding");
 
@@ -173,17 +173,17 @@ class ValueDeserializer {
 
   // ValueDeserializer::ReadDouble
   #readDouble(): number {
-    if (this.#pos + 8 > this.#data.length) {
+    if (this.pos + 8 > this.data.length) {
       throw new DeserializationError("Unexpected end of data");
     }
-    const value = this.#dv.getFloat64(this.#pos, true);
-    this.#pos += 8;
+    const value = this.dv.getFloat64(this.pos, true);
+    this.pos += 8;
     return value;
   }
 
   // ValueDeserializer::ReadJSObject
   #readJSObject(): unknown {
-    const id = this.#nextId++;
+    const id = this.nextId++;
     const obj = {};
     this.#addObjectWithId(id, obj);
 
@@ -291,7 +291,7 @@ class ValueDeserializer {
   // ValueDeserializer::ReadDenseJSArray
   #readDenseJSArray(): unknown[] {
     const length = this.#readVarint32();
-    const id = this.#nextId++;
+    const id = this.nextId++;
     const array: unknown[] = Array(length);
     this.#addObjectWithId(id, array);
 
@@ -321,7 +321,7 @@ class ValueDeserializer {
   // ValueDeserializer::ReadSparseJSArray
   #readSparseJSArray(): unknown[] {
     const length = this.#readVarint32();
-    const id = this.#nextId++;
+    const id = this.nextId++;
     const array: unknown[] = Array(length);
     this.#addObjectWithId(id, array);
 
@@ -348,7 +348,7 @@ class ValueDeserializer {
 
   // ValueDeserializer::ReadJSRegExp
   #readJSRegExp(): RegExp {
-    const id = this.#nextId++;
+    const id = this.nextId++;
     const pattern = this.#readString();
     const rawFlags = this.#readVarint32();
 
@@ -359,7 +359,7 @@ class ValueDeserializer {
 
   // ValueDeserializer::ReadJSPrimitiveWrapper
   #readJSPrimitiveWrapper(tag: EnumKey<typeof SerializationTag>): unknown {
-    const id = this.#nextId++;
+    const id = this.nextId++;
     let unboxed: unknown;
     switch (tag) {
       case "kTrueObject":
@@ -388,7 +388,7 @@ class ValueDeserializer {
 
   // ValueDeserializer::ReadJSDate
   #readJSDate(): Date {
-    const id = this.#nextId++;
+    const id = this.nextId++;
     const date = new Date(this.#readDouble());
     this.#addObjectWithId(id, date);
     return date;
