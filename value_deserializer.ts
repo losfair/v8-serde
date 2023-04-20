@@ -164,9 +164,10 @@ class ValueDeserializer {
   // ValueDeserializer::ReadZigZag
   private readZigZag(width: number): bigint {
     const unsignedValue = this.readVarint(width);
-    let output = unsignedValue >> 1n;
-    if (unsignedValue & 1n) {
-      output = -output - 1n;
+    const one = BigInt(1); // `1n` is not correctly transpiled
+    let output = unsignedValue >> one;
+    if (unsignedValue & one) {
+      output = -output - one;
     }
     return output;
   }
